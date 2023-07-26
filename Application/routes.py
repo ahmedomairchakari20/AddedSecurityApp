@@ -4,10 +4,11 @@ from models import db, User
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import session
 import secrets
+from sqlalchemy import text
 
 # Create a Blueprint for the routes
 bp = Blueprint('routes', __name__)
-bp.secret_key = secrets.token_hex(16)
+
 
 # Define the get_user_name function
 def get_user_name(user_id):
@@ -78,6 +79,11 @@ def contact():
     return render_template('contact.html')
 
 
+# Assuming you have a "failed_login_attempts" and "is_locked" field in the User model
+# Assuming you have a "failed_login_attempts" field in the User model
+
+from datetime import datetime, timedelta
+
 @bp.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -89,13 +95,31 @@ def login():
         if not user:
             return "User not found. Please sign up."
 
+        # Check if the account is locked due to multiple failed login attempts
+        if user.failed_login_attempts >= 5 and user.locked_until and user.locked_until > datetime.utcnow():
+            return "Your account is locked due to multiple failed login attempts. Please try again later."
+
         # Check if the password matches
         if not check_password_hash(user.password, password):
+            # Increment the failed login attempts
+            user.failed_login_attempts += 1
+
+            # Check if the threshold is exceeded
+            if user.failed_login_attempts >= 5:
+                # Lock the account for 30 minutes
+                user.locked_until = datetime.utcnow() + timedelta(minutes=30)
+
+            db.session.commit()
             return "Invalid password. Please try again."
+
+        # Reset failed login attempts on successful login
+        user.failed_login_attempts = 0
+        user.locked_until = None
+        db.session.commit()
 
         # Set the 'user_id' in the session to indicate the user is logged in
         session['user_id'] = user.id
-      
+
         # Redirect to a secret page (you can implement this logic)
         return redirect(url_for('routes.secret_page'))
 
